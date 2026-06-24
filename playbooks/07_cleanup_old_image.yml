@@ -1,0 +1,47 @@
+---
+# ============================================================================
+# 07_cleanup_old_image.yml
+# Remove the previous tenant image from the F5OS chassis image store.
+# RUN AS A SEPARATE WORKFLOW, days after the upgrade, after the soak period.
+# NEVER run this in the same workflow as the upgrade itself —
+# the old image is the rollback path.
+#
+# An approval node must precede this play in the cleanup workflow.
+# Supply old_image_name via AWX Survey or extra-vars.
+# ============================================================================
+
+- name: Remove old tenant image from chassis (post-soak cleanup)
+  hosts: rseries_chassis
+  gather_facts: false
+
+  pre_tasks:
+    - name: Validate old_image_name was provided
+      ansible.builtin.assert:
+        that:
+          - old_image_name is defined
+          - old_image_name | length > 0
+        fail_msg: >-
+          old_image_name is empty. Supply the old image filename via
+          AWX Survey or extra-vars before running cleanup.
+        success_msg: "Removing old image: {{ old_image_name }}"
+
+    - name: Safety gate — refuse to remove the target image
+      ansible.builtin.assert:
+        that:
+          - old_image_name != target_image_name
+        fail_msg: >-
+          REFUSED: old_image_name matches target_image_name ({{ target_image_name }}).
+          This would remove the currently running image. Check your inputs.
+        success_msg: "Safety check passed — old and target images differ."
+
+  tasks:
+    - name: Remove old tenant image
+      f5networks.f5os.f5os_tenant_image:
+        image_name: "{{ old_image_name }}"
+        state:      absent
+
+    - name: Confirm removal
+      ansible.builtin.debug:
+        msg: >-
+          Old image {{ old_image_name }} removed from
+          {{ inventory_hostname }} image store.

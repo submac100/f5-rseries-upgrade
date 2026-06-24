@@ -1,0 +1,15 @@
+---
+# ── Target software version ───────────────────────────────────────────────────
+# These are the defaults; an AWX Survey overrides them at launch.
+target_image_name: "BIGIP-17.5.0-0.0.15.ALL-F5OS.qcow2.zip.bundle"
+target_version:    "17.5.0"          # used for post-upgrade version check
+
+# ── Timing ────────────────────────────────────────────────────────────────────
+tenant_wait_timeout: 1800            # seconds to wait for tenant deployed state
+tenant_wait_sleep:   30              # poll interval
+
+# ── Cleanup ───────────────────────────────────────────────────────────────────
+# Leave false in the main upgrade workflow.
+# The separate cleanup workflow sets this to true via extra-vars.
+remove_old_image: false
+old_image_name:   ""

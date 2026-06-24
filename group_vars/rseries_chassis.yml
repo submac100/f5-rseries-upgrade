@@ -1,0 +1,17 @@
+---
+# F5OS httpapi connection (applies to every rSeries chassis in the group)
+ansible_connection:             httpapi
+ansible_network_os:             f5networks.f5os.f5os
+ansible_httpapi_use_ssl:        true
+ansible_httpapi_validate_certs: false
+ansible_httpapi_port:           443       # F5OS management port
+ansible_command_timeout:        1800      # image imports take time
+persistent_log_messages:        true
+
+# Image repository — the chassis pulls from here over the configured protocol.
+# Use a web / SCP server accessible on the chassis management network.
+image_server_host:  "192.0.2.200"
+image_server_user:  "imageuser"
+image_server_pass:  "{{ image_server_password }}"   # injected by AWX credential
+image_server_path:  "/images/f5os-tenant/"
+image_protocol:     "https"                          # scp | sftp | https

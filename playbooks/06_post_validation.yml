@@ -1,0 +1,61 @@
+---
+# ============================================================================
+# 06_post_validation.yml
+# Full-pair post-upgrade validation.
+# Both tenants must be on the target version, HA must be in-sync, and a basic
+# pool / traffic check must pass before the upgrade is considered successful.
+# ============================================================================
+
+- name: Full-pair post-upgrade validation
+  hosts: bigip_tenants
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Collect software version from both members
+      f5networks.f5_modules.bigip_command:
+        commands: "show sys software status"
+        provider: "{{ f5_provider }}"
+      register: sw_final
+      retries: 3
+      delay: 20
+
+    - name: Assert target version on both members
+      ansible.builtin.assert:
+        that:
+          - target_version in sw_final.stdout[0]
+        fail_msg: >-
+          {{ inventory_hostname }}: still NOT running {{ target_version }}.
+          Investigate before marking upgrade complete.
+        success_msg: "{{ inventory_hostname }}: running {{ target_version }} — OK."
+
+    - name: Collect HA sync state from both members
+      f5networks.f5_modules.bigip_command:
+        commands: "show cm sync-status"
+        provider: "{{ f5_provider }}"
+      register: sync_final
+
+    - name: Assert HA in-sync on both members
+      ansible.builtin.assert:
+        that:
+          - "'In Sync' in sync_final.stdout[0]"
+        fail_msg: >-
+          {{ inventory_hostname }}: HA sync is NOT in-sync after upgrade.
+          Investigate immediately.
+        success_msg: "{{ inventory_hostname }}: HA in-sync — OK."
+
+    - name: Collect pool member status (health check)
+      f5networks.f5_modules.bigip_command:
+        commands: "show ltm pool members status"
+        provider: "{{ f5_provider }}"
+      register: pools_final
+
+    - name: Show pool member status
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} pool status post-upgrade: {{ pools_final.stdout_lines }}"
+
+    - name: Final summary
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}: upgrade to {{ target_version }} validated.
+          HA in-sync. Review pool member status above for any service impact.

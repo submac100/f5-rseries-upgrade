@@ -1,0 +1,83 @@
+---
+# ============================================================================
+# 05_upgrade_active.yml
+# Upgrade the former active tenant (now standby after failover) to the target
+# image.  Mirrors 03_upgrade_standby.yml but targets the 'active' host entry
+# (which at this point in the workflow is physically standby).
+#
+# An approval node in the AWX Workflow precedes this play.
+# ============================================================================
+
+- name: Verify former active is now standby before upgrading
+  hosts: bigip_tenants
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Run only against the host marked as active in inventory
+      ansible.builtin.meta: end_host
+      when: ha_role != "active"
+
+    - name: Confirm the device is now in standby state
+      f5networks.f5_modules.bigip_command:
+        commands: "show cm traffic-group"
+        provider: "{{ f5_provider }}"
+      register: tg_check
+
+    - name: Show current HA state
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} HA state: {{ tg_check.stdout_lines }}"
+
+
+- name: Update former active tenant image on chassis
+  hosts: rseries_chassis
+  gather_facts: false
+
+  tasks:
+    - name: Set former active tenant to target image and redeploy
+      f5networks.f5os.f5os_tenant:
+        name:          "{{ hostvars['tenant-01-active']['tenant_name'] }}"
+        image_name:    "{{ target_image_name }}"
+        running_state: deployed
+
+    - name: Wait for tenant to reach deployed state
+      f5networks.f5os.f5os_tenant_wait:
+        name:    "{{ hostvars['tenant-01-active']['tenant_name'] }}"
+        state:   deployed
+        delay:   "{{ tenant_wait_sleep }}"
+        timeout: "{{ tenant_wait_timeout }}"
+
+    - name: Wait for REST API readiness
+      f5networks.f5os.f5os_tenant_wait:
+        name:    "{{ hostvars['tenant-01-active']['tenant_name'] }}"
+        state:   api-ready
+        delay:   30
+        timeout: 300
+
+
+- name: Post-upgrade verification of former active tenant
+  hosts: bigip_tenants
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Skip standby host
+      ansible.builtin.meta: end_host
+      when: ha_role != "active"
+
+    - name: Collect software version
+      f5networks.f5_modules.bigip_command:
+        commands: "show sys software status"
+        provider: "{{ f5_provider }}"
+      register: sw_post
+      retries: 5
+      delay: 30
+
+    - name: Assert target version active
+      ansible.builtin.assert:
+        that:
+          - target_version in sw_post.stdout[0]
+        fail_msg: >-
+          {{ inventory_hostname }}: version {{ target_version }} not found.
+          HALT — investigate before cleanup.
+        success_msg: "{{ inventory_hostname }}: confirmed running {{ target_version }}."

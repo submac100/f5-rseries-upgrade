@@ -1,0 +1,46 @@
+---
+# ============================================================================
+# 04_failover.yml
+# Trigger a controlled HA failover so the (now-upgraded) standby becomes active.
+# This releases the former active for upgrade.
+#
+# An approval node in the AWX Workflow precedes this play.
+# ============================================================================
+
+- name: Controlled HA failover
+  hosts: bigip_tenants
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Run only against the active member
+      ansible.builtin.meta: end_host
+      when: ha_role != "active"
+
+    - name: Trigger failover to standby (releases traffic to upgraded peer)
+      f5networks.f5_modules.bigip_command:
+        commands:
+          - run cm failover standby
+        provider: "{{ f5_provider }}"
+      register: failover_result
+
+    - name: Show failover result
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} failover result: {{ failover_result.stdout_lines }}"
+
+    - name: Pause to allow failover to stabilise
+      ansible.builtin.pause:
+        seconds: 60
+        prompt: "Waiting 60 seconds for failover to complete..."
+
+    - name: Confirm former active is now standby
+      f5networks.f5_modules.bigip_command:
+        commands: "show cm traffic-group"
+        provider: "{{ f5_provider }}"
+      register: tg_post_failover
+
+    - name: Show traffic group state post-failover
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} post-failover traffic-group state:
+          {{ tg_post_failover.stdout_lines }}

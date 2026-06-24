@@ -1,0 +1,51 @@
+---
+# ============================================================================
+# 02_import_image.yml
+# Import the tenant TMOS image into the F5OS chassis image store.
+# The chassis pulls the image from the remote server (no binary upload
+# through the API) — set image_server_* vars in group_vars/rseries_chassis.yml.
+#
+# This play runs ONCE per chassis, not per tenant.
+# An approval node in the AWX Workflow precedes this play.
+# ============================================================================
+
+- name: Import tenant image into F5OS chassis
+  hosts: rseries_chassis
+  gather_facts: false
+
+  tasks:
+    - name: Import tenant image from remote server
+      f5networks.f5os.f5os_tenant_image:
+        image_name:      "{{ target_image_name }}"
+        remote_host:     "{{ image_server_host }}"
+        remote_user:     "{{ image_server_user }}"
+        remote_password: "{{ image_server_pass }}"
+        remote_path:     "{{ image_server_path }}"
+        protocol:        "{{ image_protocol }}"
+        local_path:      "images/tenant"
+        state:           import
+        timeout:         3600        # large images; range 150-3600
+      register: import_result
+      no_log: true                   # masks image_server_pass
+
+    - name: Show import result
+      ansible.builtin.debug:
+        msg: "Import result: {{ import_result.message | default('submitted') }}"
+
+    - name: Wait for image import to complete and verify
+      f5networks.f5os.f5os_tenant_image:
+        image_name: "{{ target_image_name }}"
+        state:      present
+        timeout:    3600
+      register: import_verify
+
+    - name: Confirm import succeeded
+      ansible.builtin.assert:
+        that:
+          - import_verify is not failed
+        fail_msg: >-
+          Image {{ target_image_name }} failed to import or verify on
+          {{ inventory_hostname }}. Check F5OS logs before proceeding.
+        success_msg: >-
+          Image {{ target_image_name }} successfully imported and
+          verified on {{ inventory_hostname }}.

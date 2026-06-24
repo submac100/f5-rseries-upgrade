@@ -1,0 +1,92 @@
+---
+# ============================================================================
+# 03_upgrade_standby.yml
+# Upgrade the standby tenant to the target image.
+# On rSeries, upgrading a tenant means repointing its image_name and setting
+# running_state: deployed — the tenant redeploys onto the new image.
+#
+# IMPORTANT: target only the standby member here.
+# The AWX Workflow routes this play only to standby hosts via a limit.
+# An approval node precedes this play.
+# ============================================================================
+
+- name: Upgrade standby tenant
+  hosts: bigip_tenants
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Verify this host is the standby before upgrading
+      ansible.builtin.assert:
+        that:
+          - ha_role == "standby"
+        fail_msg: >-
+          {{ inventory_hostname }} is marked as '{{ ha_role }}', not standby.
+          Refusing to upgrade — check inventory ha_role values.
+        success_msg: "{{ inventory_hostname }} confirmed as standby. Proceeding."
+
+
+- name: Update standby tenant image on chassis
+  hosts: rseries_chassis
+  gather_facts: false
+
+  tasks:
+    - name: Set standby tenant to target image and redeploy
+      f5networks.f5os.f5os_tenant:
+        name:          "{{ hostvars['tenant-01-standby']['tenant_name'] }}"
+        image_name:    "{{ target_image_name }}"
+        running_state: deployed
+      register: tenant_update
+
+    - name: Wait for standby tenant to reach deployed state
+      f5networks.f5os.f5os_tenant_wait:
+        name:    "{{ hostvars['tenant-01-standby']['tenant_name'] }}"
+        state:   deployed
+        delay:   "{{ tenant_wait_sleep }}"
+        timeout: "{{ tenant_wait_timeout }}"
+
+    - name: Wait for standby tenant REST API to become available
+      f5networks.f5os.f5os_tenant_wait:
+        name:    "{{ hostvars['tenant-01-standby']['tenant_name'] }}"
+        state:   api-ready
+        delay:   30
+        timeout: 300
+
+
+- name: Post-upgrade verification of standby tenant
+  hosts: bigip_tenants
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Run only against the standby
+      ansible.builtin.meta: end_host
+      when: ha_role != "standby"
+
+    - name: Collect software version from upgraded standby
+      f5networks.f5_modules.bigip_command:
+        commands: "show sys software status"
+        provider: "{{ f5_provider }}"
+      register: sw_post
+      retries: 5
+      delay: 30
+
+    - name: Assert target version is active on standby
+      ansible.builtin.assert:
+        that:
+          - target_version in sw_post.stdout[0]
+        fail_msg: >-
+          {{ inventory_hostname }}: version {{ target_version }} not
+          found in software status after upgrade. HALT — do not failover.
+        success_msg: >-
+          {{ inventory_hostname }}: confirmed running {{ target_version }}.
+
+    - name: Check HA sync state on upgraded standby
+      f5networks.f5_modules.bigip_command:
+        commands: "show cm sync-status"
+        provider: "{{ f5_provider }}"
+      register: sync_post
+
+    - name: Show sync state
+      ansible.builtin.debug:
+        msg: "Standby post-upgrade sync: {{ sync_post.stdout_lines }}"

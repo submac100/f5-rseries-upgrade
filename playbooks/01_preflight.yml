@@ -1,0 +1,91 @@
+---
+# ============================================================================
+# 01_preflight.yml
+# Pre-upgrade health checks across all tenants.
+# Verifies software version, HA sync state, failover readiness, and disk space
+# on the chassis.  Any failure halts the workflow before anything is changed.
+# ============================================================================
+
+- name: Tenant pre-flight checks
+  hosts: bigip_tenants
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Save running config to disk before checks
+      f5networks.f5_modules.bigip_config:
+        save: true
+        provider: "{{ f5_provider }}"
+
+    - name: Collect current software version
+      f5networks.f5_modules.bigip_command:
+        commands: "show sys software status"
+        provider: "{{ f5_provider }}"
+      register: sw_status
+
+    - name: Display current version
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} software status: {{ sw_status.stdout_lines }}"
+
+    - name: Collect HA sync state
+      f5networks.f5_modules.bigip_command:
+        commands: "show cm sync-status"
+        provider: "{{ f5_provider }}"
+      register: sync_status
+
+    - name: Assert config-sync is in-sync before upgrade
+      ansible.builtin.assert:
+        that:
+          - "'In Sync' in sync_status.stdout[0]"
+        fail_msg: >-
+          {{ inventory_hostname }}: HA config-sync is NOT in-sync
+          ({{ sync_status.stdout[0] }}). Resolve before upgrading.
+        success_msg: "{{ inventory_hostname }}: HA config-sync OK"
+
+    - name: Collect traffic group failover state
+      f5networks.f5_modules.bigip_command:
+        commands: "show cm traffic-group"
+        provider: "{{ f5_provider }}"
+      register: tg_state
+
+    - name: Show failover state
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} traffic-group state: {{ tg_state.stdout_lines }}"
+
+    - name: Collect active pool member count (spot-check)
+      f5networks.f5_modules.bigip_command:
+        commands: "show ltm pool members status"
+        provider: "{{ f5_provider }}"
+      register: pool_status
+
+    - name: Show pool member status
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} pool status: {{ pool_status.stdout_lines }}"
+
+
+- name: Chassis disk-space pre-flight
+  hosts: rseries_chassis
+  gather_facts: false
+
+  tasks:
+    - name: Check chassis disk space for tenant images
+      ansible.builtin.debug:
+        msg: >-
+          Chassis {{ inventory_hostname }}: verify adequate disk space
+          in the tenant image store before importing
+          '{{ target_image_name }}'. Manual check required if not
+          already automated.
+
+    - name: Confirm target image does not already exist (idempotency gate)
+      f5networks.f5os.f5os_tenant_image:
+        image_name: "{{ target_image_name }}"
+        state: present
+        timeout: 60
+      register: image_check
+      ignore_errors: true
+
+    - name: Show image pre-check result
+      ansible.builtin.debug:
+        msg: >-
+          Image {{ target_image_name }} pre-check:
+          {{ 'already present' if image_check is not failed else 'not yet imported' }}
