@@ -100,6 +100,7 @@
       f5networks.f5_modules.bigip_software_install:
         image: "{{ target_image_name }}"
         state: activated
+        force: yes
         volume: "{{ target_volume | default('HD1.2') }}"
         provider: "{{ f5_provider }}"
       register: install_result
