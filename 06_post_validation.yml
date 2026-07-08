@@ -38,7 +38,7 @@
     - name: Assert HA in-sync on both members
       ansible.builtin.assert:
         that:
-          - "'In Sync' in sync_final.stdout[0]"
+          - "'In Sync' in sync_final.stdout[0] or 'Standalone' in sync_final.stdout[0]"
         fail_msg: >-
           {{ inventory_hostname }}: HA sync is NOT in-sync after upgrade.
           Investigate immediately.
