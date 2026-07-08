@@ -70,16 +70,6 @@
       ansible.builtin.meta: end_host
       when: ha_role != "standby"
 
-- name: Upload and install target image on standby tenant
-  hosts: bigip_tenants
-  connection: local
-  gather_facts: false
-
-  tasks:
-    - name: Run only against the standby member
-      ansible.builtin.meta: end_host
-      when: ha_role != "standby"
-
     - name: Fetch image from staging server to AWX controller
       ansible.builtin.get_url:
         url: "http://{{ image_server_host }}:8888/{{ target_image_name }}"
@@ -99,7 +89,7 @@
     - name: Install target image to target volume
       f5networks.f5_modules.bigip_command:
         commands:
-         - "install sys software image {{ target_image_name }} volume HD1.2 create-volume reboot forced"
+         - "install sys software image {{ target_image_name }} volume HD1.2 create-volume forced"
         provider: "{{ f5_provider }}"
       register: install_result
 
@@ -153,6 +143,11 @@
         save: true
         provider: "{{ f5_provider }}"
 
+- name: Save config with signature verification restored
+      f5networks.f5_modules.bigip_config:
+        save: true
+        provider: "{{ f5_provider }}"
+      ignore_errors: true
 
 - name: Post-upgrade verification of standby tenant
   hosts: bigip_tenants
