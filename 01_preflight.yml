@@ -33,10 +33,10 @@
         provider: "{{ f5_provider }}"
       register: sync_status
 
-    - name: Assert config-sync is in-sync before upgrade
+    - name: Assert config-sync is in-sync or standalone before upgrade
       ansible.builtin.assert:
         that:
-          - "'In Sync' in sync_status.stdout[0]"
+          - "'In Sync' in sync_status.stdout[0] or 'Standalone' in sync_status.stdout[0]"
         fail_msg: >-
           {{ inventory_hostname }}: HA config-sync is NOT in-sync
           ({{ sync_status.stdout[0] }}). Resolve before upgrading.
