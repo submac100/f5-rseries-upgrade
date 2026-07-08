@@ -70,9 +70,28 @@
       ansible.builtin.meta: end_host
       when: ha_role != "standby"
 
-    - name: Upload target image to tenant from SFTP server
+- name: Upload and install target image on standby tenant
+  hosts: bigip_tenants
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Run only against the standby member
+      ansible.builtin.meta: end_host
+      when: ha_role != "standby"
+
+    - name: Fetch image from staging server to AWX controller
+      ansible.builtin.get_url:
+        url: "http://{{ image_server_host }}:8888/{{ target_image_name }}"
+        dest: "/tmp/{{ target_image_name }}"
+        mode: '0644'
+        timeout: 3600
+      delegate_to: localhost
+      run_once: true
+
+    - name: Upload target image to tenant
       f5networks.f5_modules.bigip_software_image:
-        image: "{{ target_image_name }}"
+        image: "/tmp/{{ target_image_name }}"
         state: present
         provider: "{{ f5_provider }}"
       register: image_upload
