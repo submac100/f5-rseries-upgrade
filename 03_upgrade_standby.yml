@@ -96,12 +96,31 @@
         provider: "{{ f5_provider }}"
       register: image_upload
 
-    - name: Install target image to target volume
+- name: Install target image to target volume
       f5networks.f5_modules.bigip_command:
         commands:
-          - "install sys software image {{ target_image_name }} volume {{ target_volume | default('HD1.2') }} create-volume {{ force_install_flag | default('') }}"
+          - "install sys software image {{ target_image_name }} volume HD1.2 create-volume {{ force_install_flag | default('') }}"
         provider: "{{ f5_provider }}"
       register: install_result
+
+    - name: Wait for installation to complete on HD1.2
+      f5networks.f5_modules.bigip_command:
+        commands:
+          - "show sys software status"
+        provider: "{{ f5_provider }}"
+      register: install_status
+      until: >
+        'complete' in install_status.stdout[0] and
+        'HD1.2' in install_status.stdout[0]
+      retries: 60
+      delay: 30
+
+    - name: Activate HD1.2 to reboot into new version
+      f5networks.f5_modules.bigip_command:
+        commands:
+          - "boot sys software volume HD1.2"
+        provider: "{{ f5_provider }}"
+      register: activate_result
 
     - name: Wait for tenant to become available after reboot
       f5networks.f5_modules.bigip_wait:
