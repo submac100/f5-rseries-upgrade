@@ -54,11 +54,11 @@
 
     - name: Collect active pool member count (spot-check)
       f5networks.f5_modules.bigip_command:
-        commands: "show ltm pool members status"
+        commands: "show ltm pool all-properties"
         provider: "{{ f5_provider }}"
       register: pool_status
 
-    - name: "show ltm pool all-properties"
+    - name: Show pool member status
       ansible.builtin.debug:
         msg: "{{ inventory_hostname }} pool status: {{ pool_status.stdout_lines }}"
 
