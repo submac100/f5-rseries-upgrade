@@ -99,7 +99,7 @@
     - name: Install target image to target volume
       f5networks.f5_modules.bigip_command:
         commands:
-          - "install sys software image {{ target_image_name }} volume HD1.2 create-volume reboot"
+         - "install sys software image {{ target_image_name }} volume HD1.2 create-volume reboot forced"
         provider: "{{ f5_provider }}"
       register: install_result
 
