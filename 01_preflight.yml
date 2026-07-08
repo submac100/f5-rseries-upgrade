@@ -58,7 +58,7 @@
         provider: "{{ f5_provider }}"
       register: pool_status
 
-    - name: Show pool member status
+    - name: "show ltm pool all-properties"
       ansible.builtin.debug:
         msg: "{{ inventory_hostname }} pool status: {{ pool_status.stdout_lines }}"
 
