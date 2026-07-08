@@ -96,7 +96,7 @@
         provider: "{{ f5_provider }}"
       register: image_upload
 
-- name: Install target image to target volume (force for lab licensing)
+    - name: Install target image to target volume
       f5networks.f5_modules.bigip_command:
         commands:
           - "install sys software image {{ target_image_name }} volume {{ target_volume | default('HD1.2') }} create-volume {{ force_install_flag | default('') }}"
