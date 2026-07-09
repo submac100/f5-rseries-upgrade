@@ -130,7 +130,7 @@
       ansible.builtin.meta: end_host
       when: ha_role != "standby"
 
-    - name: Re-enable ISO signature verification
+- name: Re-enable ISO signature verification
       f5networks.f5_modules.bigip_command:
         commands:
           - "modify sys software update-schedule auto-check enabled"
@@ -142,12 +142,10 @@
       f5networks.f5_modules.bigip_config:
         save: true
         provider: "{{ f5_provider }}"
-
-- name: Save config with signature verification restored
-      f5networks.f5_modules.bigip_config:
-        save: true
-        provider: "{{ f5_provider }}"
       ignore_errors: true
+
+- name: Post-upgrade verification of standby tenant
+  hosts: bigip_tenants
 
 - name: Post-upgrade verification of standby tenant
   hosts: bigip_tenants
