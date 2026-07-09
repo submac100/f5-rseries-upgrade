@@ -27,7 +27,7 @@
         state:           import
         timeout:         3600        # large images; range 150-3600
       register: import_result
-      no_log: true                   # masks image_server_pass
+      no_log: false                   # masks image_server_pass
 
     - name: Show import result
       ansible.builtin.debug:
