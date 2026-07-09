@@ -12,6 +12,7 @@
 - name: Import tenant image into F5OS chassis
   hosts: rseries_chassis
   gather_facts: false
+  when: groups['rseries_chassis'] | length > 0
 
   tasks:
     - name: Import tenant image from remote server
