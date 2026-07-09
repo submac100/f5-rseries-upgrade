@@ -70,47 +70,20 @@
       ansible.builtin.meta: end_host
       when: ha_role != "standby"
 
-    - name: Fetch image from staging server to AWX controller
-      ansible.builtin.get_url:
-        url: "http://{{ image_server_host }}:8888/{{ target_image_name }}"
-        dest: "/tmp/{{ target_image_name }}"
-        mode: '0644'
-        timeout: 3600
-      delegate_to: localhost
-      run_once: true
-
-    - name: Upload target image to tenant
+    - name: Upload target image to tenant from SFTP server
       f5networks.f5_modules.bigip_software_image:
-        image: "/tmp/{{ target_image_name }}"
+        image: "{{ target_image_name }}"
         state: present
         provider: "{{ f5_provider }}"
       register: image_upload
 
     - name: Install target image to target volume
-      f5networks.f5_modules.bigip_command:
-        commands:
-         - "install sys software image {{ target_image_name }} volume HD1.2 create-volume forced"
+      f5networks.f5_modules.bigip_software_install:
+        image: "{{ target_image_name }}"
+        state: activated
+        volume: "{{ target_volume | default('HD1.2') }}"
         provider: "{{ f5_provider }}"
       register: install_result
-
-    - name: Wait for installation to complete on HD1.2
-      f5networks.f5_modules.bigip_command:
-        commands:
-          - "show sys software status"
-        provider: "{{ f5_provider }}"
-      register: install_status
-      until: >
-        'complete' in install_status.stdout[0] and
-        'HD1.2' in install_status.stdout[0]
-      retries: 60
-      delay: 30
-
-    - name: Activate HD1.2 to reboot into new version
-      f5networks.f5_modules.bigip_command:
-        commands:
-          - "boot sys software volume HD1.2"
-        provider: "{{ f5_provider }}"
-      register: activate_result
 
     - name: Wait for tenant to become available after reboot
       f5networks.f5_modules.bigip_wait:
@@ -130,7 +103,7 @@
       ansible.builtin.meta: end_host
       when: ha_role != "standby"
 
-- name: Re-enable ISO signature verification
+    - name: Re-enable ISO signature verification
       f5networks.f5_modules.bigip_command:
         commands:
           - "modify sys software update-schedule auto-check enabled"
@@ -142,10 +115,7 @@
       f5networks.f5_modules.bigip_config:
         save: true
         provider: "{{ f5_provider }}"
-      ignore_errors: true
 
-- name: Post-upgrade verification of standby tenant
-  hosts: bigip_tenants
 
 - name: Post-upgrade verification of standby tenant
   hosts: bigip_tenants
