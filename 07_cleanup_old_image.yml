@@ -45,3 +45,29 @@
         msg: >-
           Old image {{ old_image_name }} removed from
           {{ inventory_hostname }} image store.
+
+- name: Remove old image from tenant TMOS image store
+  hosts: bigip_tenants
+  connection: local
+  gather_facts: false
+
+  pre_tasks:
+    - name: Validate old_image_name was provided
+      ansible.builtin.assert:
+        that:
+          - old_image_name is defined
+          - old_image_name | length > 0
+        fail_msg: "old_image_name is empty. Supply via Survey before running cleanup."
+        success_msg: "Removing tenant image: {{ old_image_name }}"
+
+  tasks:
+    - name: Remove old image from tenant software image store
+      f5networks.f5_modules.bigip_software_image:
+        image: "{{ old_image_name }}"
+        state: absent
+        provider: "{{ f5_provider }}"
+      register: tenant_image_cleanup
+
+    - name: Confirm tenant image removed
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: image {{ old_image_name }} removed from tenant image store."
