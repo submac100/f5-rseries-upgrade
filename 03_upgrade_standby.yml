@@ -63,7 +63,7 @@
       until: >
         "complete" in install_status.stdout[0] and
         "HD1.2" in install_status.stdout[0]
-      retries: 60
+      retries: 120
       delay: 30
     - name: Activate HD1.2 to reboot into new version
       f5networks.f5_modules.bigip_command:
