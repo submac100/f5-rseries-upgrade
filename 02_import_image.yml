@@ -10,7 +10,7 @@
 # ============================================================================
 
 - name: Import tenant image into F5OS chassis
-hosts: "{{ groups['rseries_chassis'] | default([]) }}"
+  hosts: "{{ groups['rseries_chassis'] | default([]) }}"
 
   tasks:
     - name: Import tenant image from remote server
