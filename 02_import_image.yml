@@ -11,6 +11,8 @@
 
 - name: Import tenant image into F5OS chassis
   hosts: "{{ groups['rseries_chassis'] | default([]) }}"
+  gather_facts: false
+  connection: httpapi
 
   tasks:
     - name: Import tenant image from remote server
