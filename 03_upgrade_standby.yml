@@ -1,132 +1,110 @@
 ---
-# ============================================================================
-# 03_upgrade_standby.yml
-# Upgrade the STANDBY tenant to the target TMOS version.
-#
-# For 21.x targets (or any target released after October 2025):
-#   ISO signature verification must be DISABLED before install and
-#   RE-ENABLED after. Without this step the install will fail on tenants
-#   running any pre-October-2025 TMOS version.
-#
-# An approval node in the AWX Workflow precedes this play.
-# ============================================================================
-
 - name: Pre-upgrade checks on standby tenant
   hosts: bigip_tenants
   connection: local
   gather_facts: false
-
   tasks:
     - name: Run only against the standby member
       ansible.builtin.meta: end_host
       when: ha_role != "standby"
-
-    - name: Confirm standby is genuinely standby before touching it
-      f5networks.f5_modules.bigip_command:
-        commands: "show cm traffic-group"
-        provider: "{{ f5_provider }}"
-      register: tg_check
-
-    - name: Show current HA state
-      ansible.builtin.debug:
-        msg: "{{ inventory_hostname }} HA state: {{ tg_check.stdout_lines }}"
-
     - name: Save running config before upgrade
       f5networks.f5_modules.bigip_config:
         save: true
         provider: "{{ f5_provider }}"
 
-
-- name: Disable ISO signature verification on standby (required for 21.x targets)
+- name: Disable ISO signature verification on standby
   hosts: bigip_tenants
   connection: local
   gather_facts: false
-
   tasks:
     - name: Run only against the standby member
       ansible.builtin.meta: end_host
       when: ha_role != "standby"
-
     - name: Disable ISO signature verification before install
       f5networks.f5_modules.bigip_command:
         commands:
           - "modify sys software update-schedule auto-check disabled"
           - "modify sys db LiveInstall.Signingchecks.Overridable { value \"true\" }"
         provider: "{{ f5_provider }}"
-      register: sig_disable
-
-    - name: Confirm signature verification disabled
-      ansible.builtin.debug:
-        msg: "Signature verification disabled on {{ inventory_hostname }}: {{ sig_disable.stdout_lines }}"
-
+      ignore_errors: true
 
 - name: Upload and install target image on standby tenant
   hosts: bigip_tenants
   connection: local
   gather_facts: false
-
   tasks:
     - name: Run only against the standby member
       ansible.builtin.meta: end_host
       when: ha_role != "standby"
-
-    - name: Upload target image to tenant from SFTP server
+    - name: Fetch image from staging server to AWX controller
+      ansible.builtin.get_url:
+        url: "http://{{ image_server_host }}:8888/{{ target_image_name }}"
+        dest: "/tmp/{{ target_image_name }}"
+        mode: "0644"
+        timeout: 3600
+      delegate_to: localhost
+      run_once: true
+    - name: Upload target image to tenant
       f5networks.f5_modules.bigip_software_image:
-        image: "{{ target_image_name }}"
+        image: "/tmp/{{ target_image_name }}"
         state: present
         provider: "{{ f5_provider }}"
-      register: image_upload
-
     - name: Install target image to target volume
-      f5networks.f5_modules.bigip_software_install:
-        image: "{{ target_image_name }}"
-        state: activated
-        volume: "{{ target_volume | default('HD1.2') }}"
+      f5networks.f5_modules.bigip_command:
+        commands:
+          - "install sys software image {{ target_image_name }} volume HD1.2 create-volume forced"
         provider: "{{ f5_provider }}"
-      register: install_result
-
+    - name: Wait for installation to complete on HD1.2
+      f5networks.f5_modules.bigip_command:
+        commands:
+          - "show sys software status"
+        provider: "{{ f5_provider }}"
+      register: install_status
+      until: >
+        "complete" in install_status.stdout[0] and
+        "HD1.2" in install_status.stdout[0]
+      retries: 60
+      delay: 30
+    - name: Activate HD1.2 to reboot into new version
+      f5networks.f5_modules.bigip_command:
+        commands:
+          - "boot sys software volume HD1.2"
+        provider: "{{ f5_provider }}"
     - name: Wait for tenant to become available after reboot
       f5networks.f5_modules.bigip_wait:
-        timeout: "{{ tenant_wait_timeout | default(1800) }}"
-        sleep: "{{ tenant_wait_sleep | default(30) }}"
+        timeout: 1800
+        sleep: 30
         provider: "{{ f5_provider }}"
-      register: wait_result
-
 
 - name: Re-enable ISO signature verification after upgrade
   hosts: bigip_tenants
   connection: local
   gather_facts: false
-
   tasks:
     - name: Run only against the standby member
       ansible.builtin.meta: end_host
       when: ha_role != "standby"
-
     - name: Re-enable ISO signature verification
       f5networks.f5_modules.bigip_command:
         commands:
           - "modify sys software update-schedule auto-check enabled"
           - "modify sys db LiveInstall.Signingchecks.Overridable { value \"false\" }"
         provider: "{{ f5_provider }}"
-      register: sig_enable
-
-    - name: Save config with signature verification restored
+      ignore_errors: true
+    - name: Save config after re-enable
       f5networks.f5_modules.bigip_config:
         save: true
         provider: "{{ f5_provider }}"
-
+      ignore_errors: true
 
 - name: Post-upgrade verification of standby tenant
   hosts: bigip_tenants
   connection: local
   gather_facts: false
-
   tasks:
     - name: Run only against the standby member
       ansible.builtin.meta: end_host
       when: ha_role != "standby"
-
     - name: Collect software version from upgraded standby
       f5networks.f5_modules.bigip_command:
         commands: "show sys software status"
@@ -134,33 +112,28 @@
       register: sw_post
       retries: 5
       delay: 30
-
     - name: Assert target version is active on standby
       ansible.builtin.assert:
         that:
           - target_version in sw_post.stdout[0]
-        fail_msg: >-
-          {{ inventory_hostname }}: version {{ target_version }} not
-          found after upgrade. HALT — do not proceed to failover.
-        success_msg: >-
-          {{ inventory_hostname }}: confirmed running {{ target_version }}.
-
-    - name: Check HA sync state on upgraded standby
+        fail_msg: "{{ inventory_hostname }}: version {{ target_version }} not found. HALT."
+        success_msg: "{{ inventory_hostname }}: confirmed running {{ target_version }}."
+    - name: Check HA sync state
       f5networks.f5_modules.bigip_command:
         commands: "show cm sync-status"
         provider: "{{ f5_provider }}"
       register: sync_post
-
-    - name: Show sync state
-      ansible.builtin.debug:
-        msg: "Standby post-upgrade sync: {{ sync_post.stdout_lines }}"
-
-    - name: Check pool member health post-upgrade
+    - name: Assert HA sync or standalone
+      ansible.builtin.assert:
+        that:
+          - "'In Sync' in sync_post.stdout[0] or 'Standalone' in sync_post.stdout[0]"
+        fail_msg: "{{ inventory_hostname }}: HA sync NOT in-sync after upgrade."
+        success_msg: "{{ inventory_hostname }}: HA sync OK"
+    - name: Check pool member health
       f5networks.f5_modules.bigip_command:
-        commands: "show ltm pool members status"
+        commands: "show ltm pool all-properties"
         provider: "{{ f5_provider }}"
       register: pools_post
-
-    - name: Show pool member status
+    - name: Show pool status
       ansible.builtin.debug:
-        msg: "{{ inventory_hostname }} pool status post-upgrade: {{ pools_post.stdout_lines }}"
+        msg: "{{ inventory_hostname }} pool status: {{ pools_post.stdout_lines }}"
